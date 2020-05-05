@@ -14,13 +14,12 @@ impl Money {
     }
 }
 
-trait ToInner {
-    fn to_inner(&self) -> Result<i64, Error>;
+trait ParseInner {
+    fn parse_inner(parseable: &str) -> Result<i64, Error>;
 }
 
 fn parse_en_us_utf8(input: &str) -> Result<Money, Error> {
-    Amount::from(input)?
-        .to_inner()
+    Amount::parse_inner(input)
         .map(|inner| Money(inner))
 }
 
@@ -70,6 +69,25 @@ impl Amount {
         m.map_or("", |m| m.as_str()).to_string()
     }
 
+    fn apply_sign(&self) -> i64 {
+        return if &self.kind == &AmountKind::Negative {
+            -1
+        } else {
+            1
+        };
+    }
+
+    fn combine_dollars_and_cents(&self) -> Result<i64, Error> {
+        let dollars = mk_int(&self.dollars)? * self.apply_sign();
+        let cents = mk_rounded_cents(&self.cents)? * self.apply_sign();
+
+        dollars
+            .checked_mul(100)
+            .ok_or(Error::OutOfRange)?
+            .checked_add(cents)
+            .ok_or(Error::OutOfRange)
+    }
+
     fn from(s: &str) -> Result<Self, Error> {
         let has_minus = Regex::new(r"-(.*)").unwrap();
         let has_paren = Regex::new(r"\((.*)\)").unwrap();
@@ -90,31 +108,13 @@ impl Amount {
             _ => Err(Error::InvalidString),
         };
     }
-
-    fn apply_sign(&self) -> i64 {
-        return if &self.kind == &AmountKind::Negative {
-            -1
-        } else {
-            1
-        };
-    }
-
-    fn combine_dollars_and_cents(&self) -> Result<i64, Error> {
-        let dollars = mk_int(&self.dollars)? * self.apply_sign();
-        let cents = mk_rounded_cents(&self.cents)? * self.apply_sign();
-
-        dollars
-            .checked_mul(100)
-            .ok_or(Error::OutOfRange)?
-            .checked_add(cents)
-            .ok_or(Error::OutOfRange)
-    }
 }
 
 
-impl ToInner for Amount {
-    fn to_inner(&self) -> Result<i64, Error> {
-        self.combine_dollars_and_cents()
+impl ParseInner for Amount {
+    fn parse_inner(parseable: &str) -> Result<i64, Error> {
+        Self::from(parseable)?
+            .combine_dollars_and_cents()
     }
 }
 
