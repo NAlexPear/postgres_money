@@ -14,8 +14,14 @@ impl Money {
     }
 }
 
+trait ToInner {
+    fn to_inner(&self) -> Result<i64, Error>;
+}
+
 fn parse_en_us_utf8(input: &str) -> Result<Money, Error> {
-    Amount::from(input)?.to_money()
+    Amount::from(input)?
+        .to_inner()
+        .map(|inner| Money(inner))
 }
 
 #[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd, Debug)]
@@ -85,11 +91,6 @@ impl Amount {
         };
     }
 
-    fn to_money(&self) -> Result<Money, Error> {
-        let inner = self.combine_dollars_and_cents()?;
-        Ok(Money(inner))
-    }
-
     fn apply_sign(&self) -> i64 {
         return if &self.kind == &AmountKind::Negative {
             -1
@@ -107,6 +108,13 @@ impl Amount {
             .ok_or(Error::OutOfRange)?
             .checked_add(cents)
             .ok_or(Error::OutOfRange)
+    }
+}
+
+
+impl ToInner for Amount {
+    fn to_inner(&self) -> Result<i64, Error> {
+        self.combine_dollars_and_cents()
     }
 }
 
