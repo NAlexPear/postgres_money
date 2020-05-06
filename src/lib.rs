@@ -7,7 +7,7 @@ use error::Error;
 use std::ops::{Add, Div, Mul, Sub};
 
 #[cfg(feature = "serde")]
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -463,21 +463,33 @@ mod tests {
     // Precision loss
     #[test]
     fn test_precision_loss_i64() {
-        assert_eq!(Money(9000000000000009900) / 10 as i64, Money(900000000000000990))
+        assert_eq!(
+            Money(9000000000000009900) / 10 as i64,
+            Money(900000000000000990)
+        )
     }
 
     #[test]
     fn test_precision_loss_i32() {
-        assert_eq!(Money(9000000000000009900) / 10 as i32, Money(900000000000000990))
+        assert_eq!(
+            Money(9000000000000009900) / 10 as i32,
+            Money(900000000000000990)
+        )
     }
 
     #[test]
     fn test_precision_loss_i16() {
-        assert_eq!(Money(9000000000000009900) / 10 as i16, Money(900000000000000990))
+        assert_eq!(
+            Money(9000000000000009900) / 10 as i16,
+            Money(900000000000000990)
+        )
     }
 
     #[test]
     fn test_precision_loss_i8() {
-        assert_eq!(Money(9000000000000009900) / 10 as i8, Money(900000000000000990))
+        assert_eq!(
+            Money(9000000000000009900) / 10 as i8,
+            Money(900000000000000990)
+        )
     }
 }

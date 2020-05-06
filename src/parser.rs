@@ -19,8 +19,7 @@ trait ParseInner {
 }
 
 fn parse_en_us_utf8(input: &str) -> Result<Money, Error> {
-    Amount::parse_inner(input)
-        .map(|inner| Money(inner))
+    Amount::parse_inner(input).map(|inner| Money(inner))
 }
 
 #[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd, Debug)]
@@ -110,11 +109,9 @@ impl Amount {
     }
 }
 
-
 impl ParseInner for Amount {
     fn parse_inner(parseable: &str) -> Result<i64, Error> {
-        Self::from(parseable)?
-            .combine_dollars_and_cents()
+        Self::from(parseable)?.combine_dollars_and_cents()
     }
 }
 
@@ -310,18 +307,12 @@ mod tests {
 
     #[test]
     fn test_valid_12345678901234567_int() {
-        assert_eq!(
-            Money::from(12345678901234567),
-            Money(12345678901234567)
-        )
+        assert_eq!(Money::from(12345678901234567), Money(12345678901234567))
     }
 
     #[test]
     fn test_valid_neg_12345678901234567_int() {
-        assert_eq!(
-            Money::from(-12345678901234567),
-            Money(-12345678901234567)
-        )
+        assert_eq!(Money::from(-12345678901234567), Money(-12345678901234567))
     }
 
     #[test]
