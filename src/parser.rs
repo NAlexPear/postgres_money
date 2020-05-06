@@ -3,6 +3,8 @@ use regex::{Match, Regex};
 pub use crate::error::Error;
 
 use crate::Money;
+use std::str::Chars;
+use std::ops::Add;
 
 impl Money {
     pub fn parse_str(input: &str) -> Result<Money, Error> {
@@ -21,6 +23,175 @@ trait ParseInner {
 fn parse_en_us_utf8(input: &str) -> Result<Money, Error> {
     Amount::parse_inner(input).map(|inner| Money(inner))
 }
+
+#[derive(Clone, Copy, Debug)]
+enum Sign {
+    Minus,
+    Paren,
+    Plus,
+}
+
+impl Sign {
+    fn to_int(&self) -> i8 {
+        match self {
+            Sign::Minus| Sign::Paren => -1,
+            Sign::Plus => 1
+        }
+    }
+}
+
+#[derive(Debug)]
+struct EnUsUtf8Parser {
+    cents: String,
+    decimals: Option<i8>,
+    sign: Option<Sign>,
+    seen_currency: bool,
+}
+
+impl EnUsUtf8Parser {
+    // fn reduce(self, mut chars: Chars) -> Result<Self, Error> {
+    //     match chars.next() {
+    //         None => Ok(self),
+    //         Some(c) => {
+    //             match c {
+    //                 '-' | '+' | '(' => self.sign_handler(chars),
+    //                 '$' => Ok(self),
+    //                 '.' => self.decimal_handler(chars),
+    //                 // '0'..='9' => self.cents_string.push(c),
+    //                 '0'..='9' => self.digit_handler(chars),
+    //                 _ => Err(Error::InvalidChar(c)),
+    //             }
+    //         }
+    //     }
+    // }
+
+    fn new() -> Self {
+        Self {
+            cents: "0".to_string(),
+            sign: None,
+            decimals: None,
+            seen_currency: false,
+        }
+    }
+
+    fn into_i64(self) -> Result<i64, Error> {
+        str::parse::<i64>(&self.cents).map_err(|_| Error::InvalidString)
+    }
+
+    fn parse(s: &str) -> Result<Self, Error> {
+        fn reduce(mut acc: EnUsUtf8Parser, c: char) -> Result<EnUsUtf8Parser, Error> {
+            fn num_handler(mut acc: EnUsUtf8Parser, c: char) -> Result<EnUsUtf8Parser, Error> {
+                if acc.decimals.is_some() {
+                    acc.decimals = acc.decimals.map(|s| s + 1);
+                }
+                acc.cents.push(c);
+                Ok(acc)
+            };
+
+            fn dec_handler(mut acc: EnUsUtf8Parser, c: char) -> Result<EnUsUtf8Parser, Error> {
+                if acc.decimals.is_none() {
+                    acc.decimals = Some(0);
+                    Ok(acc)
+                } else {
+                    Err(Error::InvalidChar(c))
+                }
+            };
+
+            fn currency_handler(mut acc: EnUsUtf8Parser, c: char) -> Result<EnUsUtf8Parser, Error> {
+                if acc.seen_currency {
+                    Err(Error::InvalidChar(c))
+                } else {
+                    acc.seen_currency = true;
+                    Ok(acc)
+                }
+            }
+
+            fn sign_handler(mut acc: EnUsUtf8Parser, c: char) -> Result<EnUsUtf8Parser, Error> {
+                if acc.sign.is_some() {
+                    Err(Error::InvalidChar(c))
+                } else {
+                    acc.sign = match c {
+                        '-' => Some(Sign::Minus),
+                        '(' => Some(Sign::Paren),
+                        '+' => Some(Sign::Plus),
+                        _ => return Err(Error::InvalidChar(c))
+                    };
+                    Ok(acc)
+                }
+            }
+
+            match c {
+                '0'..='9' => num_handler(acc, c),
+                '.' => dec_handler(acc, c),
+                '$' => currency_handler(acc, c),
+                '-' | '(' | '+' => sign_handler(acc, c),
+                _ => Ok(acc)
+            }
+        }
+
+        let mut acc = EnUsUtf8Parser::new();
+        let mut it = s.chars();
+        while let Some(c) = it.next() {
+            acc = reduce(acc, c)?
+        }
+        Ok(acc)
+    }
+}
+
+#[test]
+fn tkb2() {
+    println!("{:?}", EnUsUtf8Parser::parse("00.01"));
+    println!("{:?}", EnUsUtf8Parser::parse("0.01"));
+    println!("{:?}", EnUsUtf8Parser::parse(".01"));
+    println!("{:?}", EnUsUtf8Parser::parse("00.05"));
+    println!("{:?}", EnUsUtf8Parser::parse("00.10"));
+    println!("{:?}", EnUsUtf8Parser::parse("00.01"));
+    println!("{:?}", EnUsUtf8Parser::parse("$123.45"));
+    println!("{:?}", EnUsUtf8Parser::parse("$123.451"));
+    println!("{:?}", EnUsUtf8Parser::parse("$123.454"));
+    println!("{:?}", EnUsUtf8Parser::parse("$123.455"));
+    println!("{:?}", EnUsUtf8Parser::parse("$123.456"));
+    println!("{:?}", EnUsUtf8Parser::parse("$123.459"));
+    println!("{:?}", EnUsUtf8Parser::parse("1234567890"));
+
+    println!("{:?}", EnUsUtf8Parser::parse("-00.01"));
+    println!("{:?}", EnUsUtf8Parser::parse("-0.01"));
+    println!("{:?}", EnUsUtf8Parser::parse("-.01"));
+    println!("{:?}", EnUsUtf8Parser::parse("-00.05"));
+    println!("{:?}", EnUsUtf8Parser::parse("-00.10"));
+    println!("{:?}", EnUsUtf8Parser::parse("-00.01"));
+    println!("{:?}", EnUsUtf8Parser::parse("-$123.45"));
+    println!("{:?}", EnUsUtf8Parser::parse("-$123.451"));
+    println!("{:?}", EnUsUtf8Parser::parse("-$123.454"));
+    println!("{:?}", EnUsUtf8Parser::parse("-$123.455"));
+    println!("{:?}", EnUsUtf8Parser::parse("-$123.456"));
+    println!("{:?}", EnUsUtf8Parser::parse("-$123.459"));
+    println!("{:?}", EnUsUtf8Parser::parse("-1234567890"));
+}
+
+impl ParseInner for EnUsUtf8Parser {
+    fn parse_inner(s: &str) -> Result<i64, Error> {
+        let p = s.chars().fold(EnUsUtf8Parser::new(), |acc, curr| acc);
+        println!("inside parse_inner: {:?}", p.into_i64());
+        Ok(5)
+    }
+}
+
+// #[test]
+// fn tkb() {
+//     // println!("{:?}", Sign::Neg.to_int());
+//     // println!("{:?}", Sign::Neg as i8);
+//     //
+//     // println!("{:?}", Sign::Pos.to_int());
+//     // println!("{:?}", Sign::Pos as i8);
+//     //
+//     // println!("{:?}", str::parse::<i64>(""));
+//     // println!("{:?}", str::parse::<i64>("00000000000000000000000000000000000000000000000000000000000000000000000000000000000008"));
+//
+//     println!("{:?}", '9'.to_digit(16));
+//
+//     println!("{:?}", EnUsUtf8Parser::parse_inner("hi"));
+// }
 
 #[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd, Debug)]
 enum AmountKind {
