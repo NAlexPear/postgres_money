@@ -4,7 +4,6 @@ pub use crate::error::Error;
 
 use crate::Money;
 use std::str::Chars;
-use std::ops::Add;
 
 impl Money {
     pub fn parse_str(input: &str) -> Result<Money, Error> {
@@ -50,22 +49,6 @@ struct EnUsUtf8Parser {
 }
 
 impl EnUsUtf8Parser {
-    // fn reduce(self, mut chars: Chars) -> Result<Self, Error> {
-    //     match chars.next() {
-    //         None => Ok(self),
-    //         Some(c) => {
-    //             match c {
-    //                 '-' | '+' | '(' => self.sign_handler(chars),
-    //                 '$' => Ok(self),
-    //                 '.' => self.decimal_handler(chars),
-    //                 // '0'..='9' => self.cents_string.push(c),
-    //                 '0'..='9' => self.digit_handler(chars),
-    //                 _ => Err(Error::InvalidChar(c)),
-    //             }
-    //         }
-    //     }
-    // }
-
     fn new() -> Self {
         Self {
             repr: "0".to_string(),
@@ -76,21 +59,32 @@ impl EnUsUtf8Parser {
     }
 
     // Get a consistent repr string accounting for decimals
-    fn apply_decimals(self) -> Self {
+    fn apply_decimals(&mut self) -> Self {
         let pad_to_add = 3 - self.decimals.unwrap_or(0) as usize;
+        self.repr.push_str(&"0".repeat(pad_to_add));
         Self {
-            repr: self.repr + &"0".repeat(pad_to_add),
+            repr: self.repr,
             decimals: Some(3),
-            ..self
+            seen_currency: &self.seen_currency,
+            sign: self.sign,
         }
     }
 
-    fn into_i64(self) -> Result<i64, Error> {
-        if self.decimals == Some(3) {
+    fn to_i64(&self) -> Result<i64, Error> {
+        let mut new = self.apply_decimals();
+        println!("repr b4: {:?}", new.repr);
+        let t = new.repr.pop().unwrap();
+        println!("oh mah {:?}", t);
+        println!("repr after: {:?}", new.repr);
 
-        }
+        str::parse::<i64>(&new.repr)
+            .map_err(|_| Error::InvalidString)
+            .map(|i| i + t.to_digit(10).unwrap() as i64)
+        // str::parse::<i64>(&self.repr)
+        //     .map(|i| i + self.rounding_int())
+        //     .map_err(|_| Error::InvalidString)
 
-        str::parse::<i64>(&self.repr).map_err(|_| Error::InvalidString)
+        // Ok(5)
     }
 
     fn parse(s: &str) -> Result<Self, Error> {
@@ -134,14 +128,14 @@ impl EnUsUtf8Parser {
             }
         }
 
-        fn closed_paren_handler(mut acc: EnUsUtf8Parser, c: char) -> Result<EnUsUtf8Parser, Error> {
+        fn closed_paren_handler(acc: EnUsUtf8Parser, c: char) -> Result<EnUsUtf8Parser, Error> {
             match acc.sign {
                 Some(Sign::ParenOpen) => Ok(acc),
                 _ => Err(Error::InvalidChar(c)),
             }
         }
 
-        fn handle_some(mut acc: EnUsUtf8Parser, c: char) -> Result<EnUsUtf8Parser, Error> {
+        fn handle_some(acc: EnUsUtf8Parser, c: char) -> Result<EnUsUtf8Parser, Error> {
             if let Some(Sign::ParenClose) = acc.sign {
                 return Err(Error::InvalidChar(c));
             }
@@ -191,6 +185,7 @@ fn tkb2() {
     println!("{:?}", EnUsUtf8Parser::parse("1234567890.12").map(|r| r.apply_decimals()));
     println!("{:?}", EnUsUtf8Parser::parse("1234567890.123").map(|r| r.apply_decimals()));
 
+    println!("{:?}", EnUsUtf8Parser::parse("1234567890.123").unwrap().to_i64());
     // println!("{:?}", EnUsUtf8Parser::parse("-00.01"));
     // println!("{:?}", EnUsUtf8Parser::parse("-0.01"));
     // println!("{:?}", EnUsUtf8Parser::parse("-.01"));
@@ -208,8 +203,6 @@ fn tkb2() {
 
 impl ParseInner for EnUsUtf8Parser {
     fn parse_inner(s: &str) -> Result<i64, Error> {
-        let p = s.chars().fold(EnUsUtf8Parser::new(), |acc, curr| acc);
-        println!("inside parse_inner: {:?}", p.into_i64());
         Ok(5)
     }
 }
