@@ -27,14 +27,15 @@ fn parse_en_us_utf8(input: &str) -> Result<Money, Error> {
 #[derive(Clone, Copy, Debug)]
 enum Sign {
     Minus,
-    Paren,
+    ParenOpen,
+    ParenClose,
     Plus,
 }
 
 impl Sign {
     fn to_int(&self) -> i8 {
         match self {
-            Sign::Minus| Sign::Paren => -1,
+            Sign::Minus| Sign::ParenOpen | Sign::ParenClose => -1,
             Sign::Plus => 1
         }
     }
@@ -42,7 +43,7 @@ impl Sign {
 
 #[derive(Debug)]
 struct EnUsUtf8Parser {
-    cents: String,
+    repr: String,
     decimals: Option<i8>,
     sign: Option<Sign>,
     seen_currency: bool,
@@ -67,57 +68,82 @@ impl EnUsUtf8Parser {
 
     fn new() -> Self {
         Self {
-            cents: "0".to_string(),
+            repr: "0".to_string(),
             sign: None,
             decimals: None,
             seen_currency: false,
         }
     }
 
+    // Get a consistent repr string accounting for decimals
+    fn apply_decimals(self) -> Self {
+        let pad_to_add = 3 - self.decimals.unwrap_or(0) as usize;
+        Self {
+            repr: self.repr + &"0".repeat(pad_to_add),
+            decimals: Some(3),
+            ..self
+        }
+    }
+
     fn into_i64(self) -> Result<i64, Error> {
-        str::parse::<i64>(&self.cents).map_err(|_| Error::InvalidString)
+        if self.decimals == Some(3) {
+
+        }
+
+        str::parse::<i64>(&self.repr).map_err(|_| Error::InvalidString)
     }
 
     fn parse(s: &str) -> Result<Self, Error> {
-        fn reduce(mut acc: EnUsUtf8Parser, c: char) -> Result<EnUsUtf8Parser, Error> {
-            fn num_handler(mut acc: EnUsUtf8Parser, c: char) -> Result<EnUsUtf8Parser, Error> {
-                if acc.decimals.is_some() {
-                    acc.decimals = acc.decimals.map(|s| s + 1);
-                }
-                acc.cents.push(c);
-                Ok(acc)
-            };
-
-            fn dec_handler(mut acc: EnUsUtf8Parser, c: char) -> Result<EnUsUtf8Parser, Error> {
-                if acc.decimals.is_none() {
-                    acc.decimals = Some(0);
-                    Ok(acc)
-                } else {
-                    Err(Error::InvalidChar(c))
-                }
-            };
-
-            fn currency_handler(mut acc: EnUsUtf8Parser, c: char) -> Result<EnUsUtf8Parser, Error> {
-                if acc.seen_currency {
-                    Err(Error::InvalidChar(c))
-                } else {
-                    acc.seen_currency = true;
-                    Ok(acc)
-                }
+        fn num_handler(mut acc: EnUsUtf8Parser, c: char) -> Result<EnUsUtf8Parser, Error> {
+            if acc.decimals.is_some() {
+                acc.decimals = acc.decimals.map(|s| s + 1);
             }
+            acc.repr.push(c);
+            Ok(acc)
+        }
 
-            fn sign_handler(mut acc: EnUsUtf8Parser, c: char) -> Result<EnUsUtf8Parser, Error> {
-                if acc.sign.is_some() {
-                    Err(Error::InvalidChar(c))
-                } else {
-                    acc.sign = match c {
-                        '-' => Some(Sign::Minus),
-                        '(' => Some(Sign::Paren),
-                        '+' => Some(Sign::Plus),
-                        _ => return Err(Error::InvalidChar(c))
-                    };
-                    Ok(acc)
-                }
+        fn dec_handler(mut acc: EnUsUtf8Parser, c: char) -> Result<EnUsUtf8Parser, Error> {
+            if acc.decimals.is_none() {
+                acc.decimals = Some(0);
+                Ok(acc)
+            } else {
+                Err(Error::InvalidChar(c))
+            }
+        }
+
+        fn currency_handler(mut acc: EnUsUtf8Parser, c: char) -> Result<EnUsUtf8Parser, Error> {
+            if acc.seen_currency {
+                Err(Error::InvalidChar(c))
+            } else {
+                acc.seen_currency = true;
+                Ok(acc)
+            }
+        }
+
+        fn sign_handler(mut acc: EnUsUtf8Parser, c: char) -> Result<EnUsUtf8Parser, Error> {
+            if acc.sign.is_some() {
+                Err(Error::InvalidChar(c))
+            } else {
+                acc.sign = match c {
+                    '-' => Some(Sign::Minus),
+                    '(' => Some(Sign::ParenOpen),
+                    '+' => Some(Sign::Plus),
+                    _ => return Err(Error::InvalidChar(c))
+                };
+                Ok(acc)
+            }
+        }
+
+        fn closed_paren_handler(mut acc: EnUsUtf8Parser, c: char) -> Result<EnUsUtf8Parser, Error> {
+            match acc.sign {
+                Some(Sign::ParenOpen) => Ok(acc),
+                _ => Err(Error::InvalidChar(c)),
+            }
+        }
+
+        fn handle_some(mut acc: EnUsUtf8Parser, c: char) -> Result<EnUsUtf8Parser, Error> {
+            if let Some(Sign::ParenClose) = acc.sign {
+                return Err(Error::InvalidChar(c));
             }
 
             match c {
@@ -125,48 +151,59 @@ impl EnUsUtf8Parser {
                 '.' => dec_handler(acc, c),
                 '$' => currency_handler(acc, c),
                 '-' | '(' | '+' => sign_handler(acc, c),
-                _ => Ok(acc)
+                ')' => closed_paren_handler(acc, c),
+                _ => Err(Error::InvalidChar(c)),
             }
         }
 
-        let mut acc = EnUsUtf8Parser::new();
-        let mut it = s.chars();
-        while let Some(c) = it.next() {
-            acc = reduce(acc, c)?
+        fn reduce(acc: EnUsUtf8Parser, mut it: Chars) -> Result<EnUsUtf8Parser, Error> {
+            let new_acc = match it.next() {
+                Some(c) => handle_some(acc, c),
+                None => return Ok(acc)
+            }?;
+
+            reduce(new_acc, it)
         }
-        Ok(acc)
+
+        reduce(EnUsUtf8Parser::new(), s.chars())
     }
 }
 
 #[test]
 fn tkb2() {
-    println!("{:?}", EnUsUtf8Parser::parse("00.01"));
-    println!("{:?}", EnUsUtf8Parser::parse("0.01"));
-    println!("{:?}", EnUsUtf8Parser::parse(".01"));
-    println!("{:?}", EnUsUtf8Parser::parse("00.05"));
-    println!("{:?}", EnUsUtf8Parser::parse("00.10"));
-    println!("{:?}", EnUsUtf8Parser::parse("00.01"));
-    println!("{:?}", EnUsUtf8Parser::parse("$123.45"));
-    println!("{:?}", EnUsUtf8Parser::parse("$123.451"));
-    println!("{:?}", EnUsUtf8Parser::parse("$123.454"));
-    println!("{:?}", EnUsUtf8Parser::parse("$123.455"));
-    println!("{:?}", EnUsUtf8Parser::parse("$123.456"));
-    println!("{:?}", EnUsUtf8Parser::parse("$123.459"));
-    println!("{:?}", EnUsUtf8Parser::parse("1234567890"));
+    println!("{:?}", Some(3) < None);
 
-    println!("{:?}", EnUsUtf8Parser::parse("-00.01"));
-    println!("{:?}", EnUsUtf8Parser::parse("-0.01"));
-    println!("{:?}", EnUsUtf8Parser::parse("-.01"));
-    println!("{:?}", EnUsUtf8Parser::parse("-00.05"));
-    println!("{:?}", EnUsUtf8Parser::parse("-00.10"));
-    println!("{:?}", EnUsUtf8Parser::parse("-00.01"));
-    println!("{:?}", EnUsUtf8Parser::parse("-$123.45"));
-    println!("{:?}", EnUsUtf8Parser::parse("-$123.451"));
-    println!("{:?}", EnUsUtf8Parser::parse("-$123.454"));
-    println!("{:?}", EnUsUtf8Parser::parse("-$123.455"));
-    println!("{:?}", EnUsUtf8Parser::parse("-$123.456"));
-    println!("{:?}", EnUsUtf8Parser::parse("-$123.459"));
-    println!("{:?}", EnUsUtf8Parser::parse("-1234567890"));
+    // println!("{:?}", EnUsUtf8Parser::parse("00.01"));
+    // println!("{:?}", EnUsUtf8Parser::parse("0.01"));
+    // println!("{:?}", EnUsUtf8Parser::parse(".01"));
+    // println!("{:?}", EnUsUtf8Parser::parse("00.05"));
+    // println!("{:?}", EnUsUtf8Parser::parse("00.10"));
+    // println!("{:?}", EnUsUtf8Parser::parse("00.01"));
+    // println!("{:?}", EnUsUtf8Parser::parse("$123.45"));
+    // println!("{:?}", EnUsUtf8Parser::parse("$123.451"));
+    // println!("{:?}", EnUsUtf8Parser::parse("$123.454"));
+    // println!("{:?}", EnUsUtf8Parser::parse("$123.455"));
+    // println!("{:?}", EnUsUtf8Parser::parse("$123.456"));
+    // println!("{:?}", EnUsUtf8Parser::parse("$123.459"));
+    println!("{:?}", EnUsUtf8Parser::parse("1234567890").map(|r| r.apply_decimals()));
+    println!("{:?}", EnUsUtf8Parser::parse("1234567890.").map(|r| r.apply_decimals()));
+    println!("{:?}", EnUsUtf8Parser::parse("1234567890.1").map(|r| r.apply_decimals()));
+    println!("{:?}", EnUsUtf8Parser::parse("1234567890.12").map(|r| r.apply_decimals()));
+    println!("{:?}", EnUsUtf8Parser::parse("1234567890.123").map(|r| r.apply_decimals()));
+
+    // println!("{:?}", EnUsUtf8Parser::parse("-00.01"));
+    // println!("{:?}", EnUsUtf8Parser::parse("-0.01"));
+    // println!("{:?}", EnUsUtf8Parser::parse("-.01"));
+    // println!("{:?}", EnUsUtf8Parser::parse("-00.05"));
+    // println!("{:?}", EnUsUtf8Parser::parse("-00.10"));
+    // println!("{:?}", EnUsUtf8Parser::parse("-00.01"));
+    // println!("{:?}", EnUsUtf8Parser::parse("-$123.45"));
+    // println!("{:?}", EnUsUtf8Parser::parse("-$123.451"));
+    // println!("{:?}", EnUsUtf8Parser::parse("-$123.454"));
+    // println!("{:?}", EnUsUtf8Parser::parse("-$123.455"));
+    // println!("{:?}", EnUsUtf8Parser::parse("-$123.456"));
+    // println!("{:?}", EnUsUtf8Parser::parse("-$123.459"));
+    // println!("{:?}", EnUsUtf8Parser::parse("-1234567890"));
 }
 
 impl ParseInner for EnUsUtf8Parser {
