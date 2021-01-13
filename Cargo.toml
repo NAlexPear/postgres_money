@@ -38,7 +38,7 @@ version = "1.0"
 [dependencies.postgres-types]
 optional = true
 features = ["derive"]
-version = "0.1"
+version = "0.2"
 
 [dependencies.byteorder]
 optional = true
@@ -46,4 +46,4 @@ version = "1.3"
 
 [dependencies.bytes]
 optional = true
-version = "0.5"
+version = "1"
